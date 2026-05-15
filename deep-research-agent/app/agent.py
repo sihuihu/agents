@@ -8,10 +8,12 @@
 #     https://www.apache.org/licenses/LICENSE-2.0
 
 import os
-
+import shutil
 import subprocess
 
 import google.auth
+import google.auth.transport.requests
+import google.oauth2.id_token
 from google.adk.agents import Agent
 from google.adk.apps import App
 from google.adk.models import Gemini
@@ -35,9 +37,18 @@ def _auth_headers() -> dict[str, str]:
     """Return an OIDC identity token header for Cloud Run; empty for local dev."""
     if _MCP_SSE_URL.startswith("http://"):
         return {}  # local dev — no auth needed
-    token = subprocess.check_output(
-        ["gcloud", "auth", "print-identity-token"], text=True
-    ).strip()
+    # On dev workstations, use gcloud user account (has invoker rights).
+    # In managed envs (Agent Runtime, Cloud Run), fall back to metadata server.
+    if shutil.which("gcloud"):
+        try:
+            token = subprocess.check_output(
+                ["gcloud", "auth", "print-identity-token"], text=True
+            ).strip()
+            return {"Authorization": f"Bearer {token}"}
+        except Exception:
+            pass
+    request = google.auth.transport.requests.Request()
+    token = google.oauth2.id_token.fetch_id_token(request, _CLOUD_RUN_URL)
     return {"Authorization": f"Bearer {token}"}
 
 # Dedicated search sub-agent.

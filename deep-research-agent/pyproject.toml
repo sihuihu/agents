@@ -13,6 +13,8 @@ dependencies = [
     "mcp>=1.0.0",
     "google-genai>=1.0.0",
     "beautifulsoup4>=4.12.0",
+    "google-cloud-aiplatform[agent-engines,evaluation]>=1.130.0",
+    "protobuf>=6.31.1,<7.0.0",
 ]
 requires-python = ">=3.11,<3.14"
 
@@ -106,8 +108,7 @@ acli_version = "0.1.3"
 
 [tool.agents-cli.create_params]
 # Parameters used during project creation
-deployment_target = "none"
-session_type = "in_memory"
+deployment_target = "agent_runtime"
 cicd_runner = "skip"
 include_data_ingestion = false
 
