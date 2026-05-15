@@ -9,6 +9,8 @@
 
 import os
 
+import subprocess
+
 import google.auth
 from google.adk.agents import Agent
 from google.adk.apps import App
@@ -16,21 +18,27 @@ from google.adk.models import Gemini
 from google.adk.tools import AgentTool, google_search
 from google.adk.tools.load_web_page import load_web_page
 from google.adk.tools.mcp_tool import McpToolset
-from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
+from google.adk.tools.mcp_tool.mcp_session_manager import SseConnectionParams
 from google.genai import types
-from mcp import StdioServerParameters
 
 _, project_id = google.auth.default()
 os.environ["GOOGLE_CLOUD_PROJECT"] = project_id
 os.environ["GOOGLE_CLOUD_LOCATION"] = "global"
 os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
 
-# API key for the Gemini Advisor MCP server (uses AI Studio, separate from Vertex AI)
-_GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY", "")
-_MCP_SERVER_PATH = os.environ.get(
-    "GEMINI_ADVISOR_SERVER_PATH",
-    "/usr/local/google/home/sihuihu/gemini-advisor-mcp/server.py",
-)
+# Cloud Run URL takes priority; fall back to local SSE for dev.
+_CLOUD_RUN_URL = "https://gemini-advisor-mcp-299457666029.us-central1.run.app"
+_MCP_SSE_PORT = int(os.environ.get("GEMINI_ADVISOR_PORT", "8765"))
+_MCP_SSE_URL = os.environ.get("GEMINI_ADVISOR_URL", f"{_CLOUD_RUN_URL}/sse")
+
+def _auth_headers() -> dict[str, str]:
+    """Return an OIDC identity token header for Cloud Run; empty for local dev."""
+    if _MCP_SSE_URL.startswith("http://"):
+        return {}  # local dev — no auth needed
+    token = subprocess.check_output(
+        ["gcloud", "auth", "print-identity-token"], text=True
+    ).strip()
+    return {"Authorization": f"Bearer {token}"}
 
 # Dedicated search sub-agent.
 # google_search is model-internal grounding and cannot be mixed with FunctionTools,
@@ -64,14 +72,15 @@ root_agent = Agent(
     instruction=(
         "You are a deep research agent. Your goal is thorough, accurate research reports.\n\n"
         "PROCESS — follow this order:\n"
-        "1. Call gemini_advisor (always_advise=true, max_advisor_calls=2) with the research topic "
-        "to get a strategic plan: which angles to investigate, what to prioritize.\n"
+        "1. Call gemini_advisor with task=<research topic>, executor_model='gemini-flash-latest', "
+        "max_advisor_calls=2 to get a strategic plan: which angles to investigate, what to prioritize.\n"
         "2. Execute the plan: use search_agent for each major research angle. Be systematic.\n"
         "3. For the 2-3 most important sources, use load_web_page to read full content.\n"
-        "4. Before writing the final report, call gemini_advisor once more to validate your "
-        "synthesis and check for gaps.\n"
+        "4. Before writing the final report, call gemini_advisor again (same executor_model) "
+        "to validate your synthesis and check for gaps.\n"
         "5. Write the final report.\n\n"
         "ADVISOR RULES:\n"
+        "- Always pass executor_model='gemini-flash-latest' when calling gemini_advisor.\n"
         "- Give advisor guidance serious weight. Surface conflicts explicitly.\n"
         "- If the advisor and your findings disagree, note the conflict and ask for reconciliation.\n\n"
         "REPORT FORMAT:\n"
@@ -84,12 +93,10 @@ root_agent = Agent(
         AgentTool(search_agent),
         load_web_page,
         McpToolset(
-            connection_params=StdioConnectionParams(
-                server_params=StdioServerParameters(
-                    command="python",
-                    args=[_MCP_SERVER_PATH],
-                    env={**os.environ, "GEMINI_API_KEY": _GEMINI_API_KEY},
-                ),
+            connection_params=SseConnectionParams(
+                url=_MCP_SSE_URL,
+                headers=_auth_headers(),
+                sse_read_timeout=120.0,  # Pro inference can take ~30-60s
             ),
             tool_filter=["gemini_advisor"],
         ),
