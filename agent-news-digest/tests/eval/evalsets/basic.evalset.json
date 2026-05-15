@@ -1,0 +1,44 @@
+{
+  "eval_set_id": "basic_eval",
+  "name": "Agent News Digest Evaluation",
+  "description": "Validates that the digest pipeline finds news items, structures them correctly, and attempts email delivery.",
+  "eval_cases": [
+    {
+      "eval_id": "digest_runs",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [{"text": "Run the daily agent news digest."}]
+          },
+          "expected_tool_use": [
+            {"tool_name": "google_search"},
+            {"tool_name": "send_digest_email"}
+          ]
+        }
+      ],
+      "session_input": {
+        "app_name": "app",
+        "user_id": "eval_user",
+        "state": {"current_date": "2026-05-08"}
+      }
+    },
+    {
+      "eval_id": "search_finds_anthropic",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [{"text": "Search only for recent Anthropic agent news and list what you find."}]
+          },
+          "expected_tool_use": [
+            {"tool_name": "google_search"}
+          ]
+        }
+      ],
+      "session_input": {
+        "app_name": "app",
+        "user_id": "eval_user",
+        "state": {"current_date": "2026-05-08"}
+      }
+    }
+  ]
+}
